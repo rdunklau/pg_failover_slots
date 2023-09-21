@@ -70,7 +70,6 @@ PG_MODULE_MAGIC;
 #endif
 
 #define EXTENSION_NAME "pg_failover_slots"
-#define WORKER_NAP_TIME 60000L
 #define WORKER_WAIT_FEEDBACK 10000L
 
 typedef struct RemoteSlot
@@ -103,6 +102,9 @@ static char *standby_slot_names_string = NULL;
 List *standby_slot_names = NIL;
 int standby_slots_min_confirmed;
 XLogRecPtr standby_slot_names_oldest_flush_lsn = InvalidXLogRecPtr;
+
+/* Various configuration */
+int worker_nap_time;
 
 /* Slots to sync */
 char *pg_failover_slots_dsn;
@@ -1151,18 +1153,18 @@ pg_failover_slots_main(Datum main_arg)
 	while (true)
 	{
 		int rc;
-		long sleep_time = WORKER_NAP_TIME;
+		long sleep_time = worker_nap_time;
 
 		CHECK_FOR_INTERRUPTS();
 
 		if (RecoveryInProgress())
 		{
-			sleep_time = synchronize_failover_slots(WORKER_NAP_TIME);
+			sleep_time = synchronize_failover_slots(worker_nap_time);
 		}
 		else
 		{
 			cleanup_failover_slots_after_promotion();
-			sleep_time = WORKER_NAP_TIME * 10;
+			sleep_time = worker_nap_time * 10;
 		}
 
 		rc =
@@ -1546,6 +1548,14 @@ _PG_init(void)
 		"up on one slot while other slots are ok to be synced.",
 		&pg_failover_slots_sync_timeout, -1, -1, INT_MAX, PGC_SIGHUP,
 		GUC_UNIT_MS, NULL, NULL, NULL);
+
+
+	DefineCustomIntVariable(
+		"pg_failover_slots.worker_nap_time",
+		"Time to sleep between two synchronisation attempts.",
+		NULL,
+		&worker_nap_time, 60000, 1000, INT_MAX, PGC_SIGHUP,
+		GUC_SUPERUSER_ONLY | GUC_UNIT_MS, NULL, NULL, NULL);
 
 	if (IsBinaryUpgrade)
 		return;
